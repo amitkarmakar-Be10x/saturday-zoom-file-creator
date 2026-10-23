@@ -23,7 +23,7 @@ p.sub{margin:0 0 18px;color:var(--dim);line-height:1.5;font-size:.98rem}
 ul#files{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:6px}
 ul#files li{display:flex;justify-content:space-between;gap:10px;font-size:.92rem;padding:7px 10px;border-radius:7px;background:rgba(255,255,255,.06)}
 ul#files em{font-style:normal;color:var(--gold);white-space:nowrap}
-ul#files .bad em{color:#ff8f8f}
+ul#files .bad em{color:#ff8f8f;white-space:normal;text-align:right;font-size:.82rem}
 details{margin:14px 0 0;color:var(--dim);font-size:.92rem}
 summary{cursor:pointer;color:var(--ink)}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
@@ -124,11 +124,42 @@ function toCSV(header,rows){
   return [header,...rows].map(r=>r.map(esc).join(',')).join('\r\n')+'\r\n';
 }
 const HEADER=['Name','CountryCode','Phone','AllowBroadcast','AllowSMS','emailid','session','wsdt','time','msg1','msg2','msg3','msg4','zoomads','zoomid','calendar'];
-function detect(rows){
-  const h=(rows[0]||[]).map(x=>x.trim());
-  if(h.includes('Zoom Account')&&h.includes('Joining Link')) return 'sheet';
-  if(h.includes('Zoom')&&h.includes('msg1')&&h.includes('without country code')) return 'leads';
+const nk=h=>String(h).toLowerCase().replace(/[^a-z0-9]/g,'');
+const LC={Zoom:['zoom','zoomaccount','zoomno','zoomnumber','account'],
+  phone:['withoutcountrycode','phone','phonenumber','mobile','mobilenumber','number','whatsapp','whatsappnumber','contact','contactnumber'],
+  cc:['countrycode','ccode','isd'],email:['email','emailid','emailaddress','mail'],
+  Lead:['lead','leadtype','datatype','type'],platform:['platform','source'],
+  msg1:['msg1','message1'],msg2:['msg2','message2'],msg3:['msg3','message3'],msg4:['msg4','message4']};
+function findCol(h,al){for(const a of al){const i=h.findIndex(x=>nk(x)===a);if(i>=0)return i}return -1}
+function kindOf(h){
+  const n=h.map(nk);
+  if(n.includes('zoomaccount')&&n.includes('joininglink'))return 'sheet';
+  if(findCol(h,LC.Zoom)>=0&&findCol(h,LC.phone)>=0)return 'leads';
   return null;
+}
+/* looks for the header in the first few rows, so title rows above it are fine */
+function detect(rows){
+  for(let i=0;i<Math.min(6,rows.length);i++){const k=kindOf(rows[i]);if(k)return{kind:k,i}}
+  return null;
+}
+/* rows[0] must be the header row */
+function normSheet(rows){
+  const h=rows[0],c=n=>findCol(h,[n]);
+  const ix={a:c('zoomaccount'),j:c('joininglink'),w:c('webinarid'),c:c('calendarlink'),n:c('number'),e:c('email')};
+  const g=(r,i)=>i>=0?(r[i]??'').trim():'';
+  return rows.slice(1).map(r=>({'Zoom Account':g(r,ix.a),'Joining Link':g(r,ix.j),'Webinar ID':g(r,ix.w),'Calendar Link':g(r,ix.c),'Number':g(r,ix.n),'Email':g(r,ix.e)}));
+}
+function normLeads(rows){
+  const h=rows[0],ix={};
+  for(const k in LC)ix[k]=findCol(h,LC[k]);
+  const g=(r,k)=>ix[k]>=0?(r[ix[k]]??'').trim():'';
+  const exactPhone=nk(h[ix.phone])==='withoutcountrycode';
+  return rows.slice(1).map(r=>{
+    let phone=g(r,'phone'),cc=g(r,'cc');
+    if(ix.cc<0&&!exactPhone){const d=phone.replace(/\D/g,'');if(d.length>10){cc=d.slice(0,d.length-10);phone=d.slice(-10)}else{cc='91';phone=d}}
+    if(!cc)cc='91';
+    return {Zoom:g(r,'Zoom'),country_code:cc,'without country code':phone,email:g(r,'email'),Lead:g(r,'Lead'),platform:g(r,'platform'),msg1:g(r,'msg1'),msg2:g(r,'msg2'),msg3:g(r,'msg3'),msg4:g(r,'msg4')};
+  }).filter(l=>l['without country code']||l.Zoom);
 }
 /* sheet: array of objects, leads: array of objects,
    opt: {type:'Main'|'Exotic'|..., session, wsdt, time, handlerMsgs[4]}
@@ -179,17 +210,20 @@ drop.addEventListener('drop',e=>handle([...e.dataTransfer.files]));
 async function handle(files){
   msg.textContent='';out.innerHTML='';
   for(const f of files){
-    const li=document.createElement('li');
+    const prev=[...list.children].find(x=>x.dataset.n===f.name);if(prev)prev.remove();
+    const li=document.createElement('li');li.dataset.n=f.name;
+    const name=document.createElement('span');name.textContent=f.name;
+    const tag=document.createElement('em');
     try{
       const rows=parseCSV(await f.text());
-      const kind=detect(rows);
-      if(kind==='sheet'){sheet=toObjects(rows);li.innerHTML=`<span>${f.name}</span><em>Zoom sheet, ${sheet.length} rows</em>`;autofill()}
-      else if(kind==='leads'){leads=toObjects(rows);li.innerHTML=`<span>${f.name}</span><em>Old video file, ${leads.length} rows</em>`;fillTypes()}
-      else{li.className='bad';li.innerHTML=`<span>${f.name}</span><em>Not recognised</em>`}
-    }catch(err){li.className='bad';li.innerHTML=`<span>${f.name}</span><em>Could not read</em>`}
-    list.appendChild(li);
+      const d=detect(rows);
+      if(d&&d.kind==='sheet'){sheet=normSheet(rows.slice(d.i));tag.textContent=`Zoom sheet, ${sheet.length} rows`;autofill()}
+      else if(d&&d.kind==='leads'){leads=normLeads(rows.slice(d.i));tag.textContent=`Leads file, ${leads.length.toLocaleString()} rows`;fillTypes()}
+      else{li.className='bad';tag.textContent='Not recognised. Columns found: '+(rows[0]||[]).slice(0,10).join(' | ')}
+    }catch(err){li.className='bad';tag.textContent='Could not read'}
+    li.append(name,tag);list.appendChild(li);
   }
-  go.disabled=!(sheet&&leads);
+  go.disabled=!(sheet&&leads&&leads.length);
   if(!go.disabled)msg.style.color='var(--dim)',msg.textContent='Both files loaded. Ready to generate.';
 }
 function fillTypes(){
