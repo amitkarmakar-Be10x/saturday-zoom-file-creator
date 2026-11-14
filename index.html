@@ -128,12 +128,14 @@ const nk=h=>String(h).toLowerCase().replace(/[^a-z0-9]/g,'');
 const LC={Zoom:['zoom','zoomaccount','zoomno','zoomnumber','account'],
   phone:['withoutcountrycode','phone','phonenumber','mobile','mobilenumber','number','whatsapp','whatsappnumber','contact','contactnumber'],
   cc:['countrycode','ccode','isd'],email:['email','emailid','emailaddress','mail'],
+  profession:['professionpg','profession','occupation'],
   Lead:['lead','leadtype','datatype','type'],platform:['platform','source'],
   msg1:['msg1','message1'],msg2:['msg2','message2'],msg3:['msg3','message3'],msg4:['msg4','message4']};
+const SH={link:['joininglink','joinlink','zoomlink','registrationlink','link'],id:['webinarid','zoomid','webinarno','meetingid'],cal:['calendarlink','calendar','calenderlink']};
 function findCol(h,al){for(const a of al){const i=h.findIndex(x=>nk(x)===a);if(i>=0)return i}return -1}
 function kindOf(h){
   const n=h.map(nk);
-  if(n.includes('zoomaccount')&&n.includes('joininglink'))return 'sheet';
+  if(n.includes('zoomaccount')&&SH.link.some(a=>n.includes(a)))return 'sheet';
   if(findCol(h,LC.Zoom)>=0&&findCol(h,LC.phone)>=0)return 'leads';
   return null;
 }
@@ -145,9 +147,9 @@ function detect(rows){
 /* rows[0] must be the header row */
 function normSheet(rows){
   const h=rows[0],c=n=>findCol(h,[n]);
-  const ix={a:c('zoomaccount'),j:c('joininglink'),w:c('webinarid'),c:c('calendarlink'),n:c('number'),e:c('email')};
+  const ix={a:c('zoomaccount'),j:findCol(h,SH.link),w:findCol(h,SH.id),c:findCol(h,SH.cal),n:c('number'),e:c('email'),m:c('name')};
   const g=(r,i)=>i>=0?(r[i]??'').trim():'';
-  return rows.slice(1).map(r=>({'Zoom Account':g(r,ix.a),'Joining Link':g(r,ix.j),'Webinar ID':g(r,ix.w),'Calendar Link':g(r,ix.c),'Number':g(r,ix.n),'Email':g(r,ix.e)}));
+  return rows.slice(1).map(r=>({'Zoom Account':g(r,ix.a),'Joining Link':g(r,ix.j),'Webinar ID':g(r,ix.w),'Calendar Link':g(r,ix.c),'Number':g(r,ix.n),'Email':g(r,ix.e),'Name':g(r,ix.m)}));
 }
 function normLeads(rows){
   const h=rows[0],ix={};
@@ -158,8 +160,16 @@ function normLeads(rows){
     let phone=g(r,'phone'),cc=g(r,'cc');
     if(ix.cc<0&&!exactPhone){const d=phone.replace(/\D/g,'');if(d.length>10){cc=d.slice(0,d.length-10);phone=d.slice(-10)}else{cc='91';phone=d}}
     if(!cc)cc='91';
-    return {Zoom:g(r,'Zoom'),country_code:cc,'without country code':phone,email:g(r,'email'),Lead:g(r,'Lead'),platform:g(r,'platform'),msg1:g(r,'msg1'),msg2:g(r,'msg2'),msg3:g(r,'msg3'),msg4:g(r,'msg4')};
+    return {Zoom:g(r,'Zoom'),country_code:cc,'without country code':phone,email:g(r,'email'),Lead:g(r,'Lead'),profession:g(r,'profession'),platform:g(r,'platform'),msg1:g(r,'msg1'),msg2:g(r,'msg2'),msg3:g(r,'msg3'),msg4:g(r,'msg4')};
   }).filter(l=>l['without country code']||l.Zoom);
+}
+/* When the leads file has no msg columns, msg2 and msg3 follow the lead's profession
+   (same pairs as the old video file); msg1 and msg4 are the fixed handler lines. */
+const PAIRS=[["Turning your existing skill-set into AI-powered side-income opportunities.","Creating new income streams by combining your professional expertise with the help of AI."],["Creating new income streams by combining your finance expertise with AI.","Developing AI skills to unlock new career opportunities, earning potential & much more."],["Turning your tech skills into AI-powered side-income opportunities.","Building and monetizing AI-based solutions, services, and digital projects & Much More."],["Discovering how AI can help you build skills and unlock side-income opportunities.","Using AI to build a skillset that goes beyond your academics, will help you even after you finish your school/college & much more."],["Using AI to enhance your healthcare expertise and explore new side-income opportunities.","Using AI to streamline clinical documentation, case summaries, medical analysis & much more."],["Using AI to turn learning into skills, skills into opportunities, and opportunities into income.","Transforming what you already know into new earning possibilities with AI & much more."],["Going beyond the classroom with AI-powered skills and new income possibilities.","Turning your teaching expertise into additional income opportunities with AI skills & much more."],["Implementing AI to streamline operations, strengthen sales & marketing, and unlock new revenue opportunities.","Developing AI skills to scale your business, increase efficiency & much more."],["Using AI tools to create content, improve campaigns, and boost marketing productivity.","Turning your marketing expertise into AI-powered services and new side-income opportunities & much more."],["Using AI tools to streamline operations, improve productivity, and simplify repetitive tasks.","Turning your operational expertise into AI-powered solutions and new side-income opportunities & much more."],["Using AI to turn your data skills into consulting, digital, and side-income opportunities.","Leveraging AI for data analysis, reporting, dashboards, and automation to create new income streams & much more."],["Using AI to enhance your HR expertise and explore new side-income opportunities.","Leveraging AI for recruitment, content, training, and HR services to create additional earning possibilities & much more."],["Using AI to build valuable skills that complement your government or defence experience.","Exploring AI-powered opportunities in training, research, content, consulting, and other areas beyond your current role & much more."],["Using AI to turn your creative skills into digital, independent, and side-income opportunities.","Creating AI-powered content, designs, creative services, and digital products that can help you build additional income streams & much more."]];
+const PROF={"artsmediacreativeprofessional": 13, "businessownerentrepreneur": 7, "currentlystudent": 3, "data": 10, "educatorteacher": 6, "financebankinginsurance": 1, "freelancerconsultant": 5, "govtdefenceprofessional": 12, "hr": 11, "healthcare": 4, "itsoftware": 2, "marketing": 8, "operationsmanufacturing": 9, "other": 0, "sales": 0, "unemployed": 5, "student": 3};
+function leadMsgs(l,hm){
+  const pr=PAIRS[PROF[nk(l.profession||'')]??0];
+  return [l.msg1||hm[0],l.msg2||pr[0],l.msg3||pr[1],l.msg4||hm[3]];
 }
 /* sheet: array of objects, leads: array of objects,
    opt: {type:'Main'|'Exotic'|..., session, wsdt, time, handlerMsgs[4]}
@@ -167,30 +177,43 @@ function normLeads(rows){
 function build(sheet,leads,opt){
   const type=opt.type||'Main',extra=type.toLowerCase()!=='main';
   const byAcc={};
-  sheet.forEach(s=>{const k=(s['Zoom Account']||'').trim().toLowerCase();if(k&&!(k in byAcc))byAcc[k]=s});
+  /* account match ignores case, spaces and punctuation (Zoom 10 = zoom10); if the first row for an
+     account lacks the link / webinar id / calendar link, the value is taken from any other row of that account */
+  sheet.forEach(s=>{const k=nk(s['Zoom Account']||'');if(!k)return;
+    if(!(k in byAcc))byAcc[k]=Object.assign({},s);
+    else['Joining Link','Webinar ID','Calendar Link'].forEach(f=>{if(!byAcc[k][f]&&s[f])byAcc[k][f]=s[f]})});
   const pick=leads.filter(l=>((l.Lead||'').trim()||'Main').toLowerCase()===type.toLowerCase());
   const groups={};
   pick.forEach(l=>{const z=l.Zoom;if(!z)return;(groups[z]=groups[z]||[]).push(l)});
   const header=extra?HEADER.concat('platform'):HEADER;
   const result=[],missing=[];
   Object.keys(groups).forEach(z=>{
-    const s=byAcc[z.toLowerCase()];
+    const s=byAcc[nk(z)];
     if(!s){missing.push(z);return}
     const common=[opt.session,opt.wsdt,opt.time];
     const tail=[s['Joining Link'],s['Webinar ID'],s['Calendar Link']];
-    const first=['','91',s['Number'],'TRUE','TRUE',s['Email'],...common,...opt.handlerMsgs,...tail];
-    if(extra){  /* handler row gets a random platform taken from this file's exotic leads */
-      let pl=[...new Set(groups[z].map(l=>(l.platform||'').trim()).filter(v=>v&&v.toLowerCase()!=='na'))];
-      if(!pl.length)pl=[...new Set(pick.map(l=>(l.platform||'').trim()).filter(v=>v&&v.toLowerCase()!=='na'))];
-      first.push(pl.length?pl[Math.floor(Math.random()*pl.length)]:'');
-    }
-    const rows=[first];
+    const lack=[['Joining Link',tail[0]],['Webinar ID',tail[1]],['Calendar Link',tail[2]]].filter(x=>!x[1]).map(x=>x[0]);
+    /* every RCA in the sheet (name, number, email) goes at the top of each file, this file's own RCA first */
+    const seenNum=new Set(),rcas=[];
+    [s,...sheet].forEach((r,i)=>{
+      const num=(r['Number']||'').trim();
+      /* own account row first, then only the standalone RCA rows (no Zoom account) - not other accounts' handlers */
+      if(!num||seenNum.has(num)||(i>0&&((r['Zoom Account']||'').trim()||!(r['Name']||'').trim())))return;
+      seenNum.add(num);rcas.push(r);
+    });
+    let pl=[...new Set(groups[z].map(l=>(l.platform||'').trim()).filter(v=>v&&v.toLowerCase()!=='na'))];
+    if(!pl.length)pl=[...new Set(pick.map(l=>(l.platform||'').trim()).filter(v=>v&&v.toLowerCase()!=='na'))];
+    const rows=rcas.map(r=>{
+      const row=[r['Name']||'','91',r['Number'],'TRUE','TRUE',r['Email'],...common,...opt.handlerMsgs,...tail];
+      if(extra)row.push(pl.length?pl[Math.floor(Math.random()*pl.length)]:'');  /* random platform */
+      return row;
+    });
     groups[z].forEach(l=>{
-      const r=['',l.country_code,l['without country code'],'TRUE','TRUE',l.email,...common,l.msg1,l.msg2,l.msg3,l.msg4,...tail];
+      const r=['',l.country_code,l['without country code'],'TRUE','TRUE',l.email,...common,...leadMsgs(l,opt.handlerMsgs),...tail];
       if(extra)r.push(l.platform||'');
       rows.push(r);
     });
-    result.push({name:z+'_'+type+'.csv',zoom:z,count:rows.length-1,csv:toCSV(header,rows)});
+    result.push({name:z+'_'+type+'.csv',zoom:z,lack,count:groups[z].length,rcas:rcas.length,csv:toCSV(header,rows)});
   });
   return {result,missing,total:pick.length};
 }
@@ -250,10 +273,10 @@ go.onclick=()=>{
   out.innerHTML='';
   const files=[];
   result.forEach(r=>{
-    const total=r.count+1,fname=$('cnt').checked?r.name.replace('.csv','_'+total+'.csv'):r.name;
+    const total=r.count+r.rcas,fname=$('cnt').checked?r.name.replace('.csv','_'+total+'.csv'):r.name;
     files.push({name:fname,text:r.csv});
     const d=document.createElement('div');d.className='card';
-    d.innerHTML=`<h2>${fname}</h2><div class="n">${total.toLocaleString()} rows</div><p>${r.count.toLocaleString()} leads + 1 handler row (header not counted).${type.toLowerCase()==='main'?'':' Includes the platform column (handler row gets a random platform).'}</p>`;
+    d.innerHTML=`<h2>${fname}</h2><div class="n">${total.toLocaleString()} rows</div><p>${r.count.toLocaleString()} leads + ${r.rcas?r.rcas+' RCA rows at the top':'no RCA rows (none in the sheet)'} (header not counted). Zoom link, webinar ID and calendar link added to every row.${r.lack&&r.lack.length?' <b style=\"color:#ff9d9d\">Not found in the sheet for this account: '+r.lack.join(', ')+'.</b>':''}${type.toLowerCase()==='main'?'':' Includes the platform column (RCA rows get a random platform).'}</p>`;
     out.appendChild(d);
   });
   if(files.length){
