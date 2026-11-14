@@ -37,6 +37,7 @@ label.sel{margin-top:14px;font-size:.9rem;color:var(--ink)}
 select{font:inherit;font-size:.95rem;color:var(--ink);background:rgba(0,0,0,.45);border:1px solid var(--line);border-radius:6px;padding:8px 9px;width:100%}
 select:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 #all{margin-top:4px;width:100%;background:var(--gold);color:#2b0a10;font-size:1rem}
+.dl1{margin-top:10px;width:100%;background:var(--gold);color:#2b0a10;font-size:.95rem}
 label.chk{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:.9rem;color:var(--ink)}
 label.chk input{width:auto}
 .hint{margin:12px 0 0;font-size:.82rem;color:var(--dim)}
@@ -213,7 +214,7 @@ function build(sheet,leads,opt){
       if(extra)r.push(l.platform||'');
       rows.push(r);
     });
-    result.push({name:z+'_'+type+'.csv',zoom:z,lack,count:groups[z].length,rcas:rcas.length,csv:toCSV(header,rows)});
+    result.push({name:z+'_'+type+'.csv',zoom:z,lack,count:groups[z].length,rcas:rcas.length,header,rows,csv:toCSV(header,rows)});
   });
   return {result,missing,total:pick.length};
 }
@@ -266,6 +267,12 @@ function autofill(){ /* derive the date line from calendar links such as ...-18t
   const cur=$('wsdt').value, t=cur.split('|')[1]||' 11 AM';
   $('wsdt').value=`${m[1]} ${mon}|${t}`;
 }
+function dl(name,text){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:'text/csv;charset=utf-8'}));
+  a.download=name;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
 go.onclick=()=>{
   const type=$('dtype').value;
   const opt={type,session:$('session').value,wsdt:$('wsdt').value,time:$('time').value,handlerMsgs:[$('h1').value,$('h2').value,$('h3').value,$('h4').value]};
@@ -277,16 +284,25 @@ go.onclick=()=>{
     files.push({name:fname,text:r.csv});
     const d=document.createElement('div');d.className='card';
     d.innerHTML=`<h2>${fname}</h2><div class="n">${total.toLocaleString()} rows</div><p>${r.count.toLocaleString()} leads + ${r.rcas?r.rcas+' RCA rows at the top':'no RCA rows (none in the sheet)'} (header not counted). Zoom link, webinar ID and calendar link added to every row.${r.lack&&r.lack.length?' <b style=\"color:#ff9d9d\">Not found in the sheet for this account: '+r.lack.join(', ')+'.</b>':''}${type.toLowerCase()==='main'?'':' Includes the platform column (RCA rows get a random platform).'}</p>`;
+    const eb=document.createElement('button');eb.className='dl1';eb.textContent='Download this file';
+    eb.onclick=()=>dl(fname,r.csv);d.appendChild(eb);
     out.appendChild(d);
   });
+  let merged=null;
+  if(result.length){  /* one file with every output merged: header once, then all rows of all files */
+    const allRows=result.flatMap(r=>r.rows),mname=`Merged_${type}_${allRows.length}.csv`;
+    merged={name:mname,text:toCSV(result[0].header,allRows)};
+    const d=document.createElement('div');d.className='card';
+    d.innerHTML=`<h2>${mname}</h2><div class="n">${allRows.length.toLocaleString()} rows</div><p>All ${result.length} output file${result.length>1?'s':''} merged into one (header once). Each row keeps its own zoom link, webinar ID and calendar link.</p>`;
+    const mb=document.createElement('button');mb.className='dl1';mb.textContent='Download merged file';
+    mb.onclick=()=>dl(merged.name,merged.text);d.appendChild(mb);
+    out.appendChild(d);
+  }
   if(files.length){
     const b=document.createElement('button');b.id='all';
     b.textContent=`Download all (${files.length} file${files.length>1?'s':''})`;
     b.onclick=()=>files.forEach((f,i)=>setTimeout(()=>{   /* separate files, one after another */
-      const a=document.createElement('a');
-      a.href=URL.createObjectURL(new Blob([f.text],{type:'text/csv;charset=utf-8'}));
-      a.download=f.name;document.body.appendChild(a);a.click();a.remove();
-      setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+      dl(f.name,f.text);
     },i*400));
     out.appendChild(b);
   }
